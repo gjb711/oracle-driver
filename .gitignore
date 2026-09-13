@@ -1,0 +1,38 @@
+# Secrets / handoff — never commit
+GITHUB-PUBLISH-HANDOFF.md
+*.handoff*.md
+*HANDOFF*.md
+*.token
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+
+# Tests / scratch
+live_test.py
+*_selftest.py
+_run*.txt
+*cmp*.py
+_crypto_test.py
+_crypto*.py
+trace_handshake.py
+diag*.py
+pyora-live-debug.md
+
+# Go scratch (vendored during porting)
+gotest/
+gotest2/
+go-ora-master/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
