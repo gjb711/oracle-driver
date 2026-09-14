@@ -458,15 +458,23 @@ class Command:
 
     def _read_one_row(self):
         """Read one result row off the wire following a msg 7 (mirrors go-ora
-        command.go ``case 7`` else-branch: only columns whose bit was set in the
-        bit vector actually carry data and are read; the rest are None)."""
+        command.go ``case 7`` else-branch).
+
+        A *clear* bit in the bit vector does not mean NULL: it means the column
+        is unchanged from the previous row and was not sent again.  go-ora keeps
+        the last decoded value in ``stmt.columns[index].oPrimValue`` and reuses
+        it (``newRow[index] = col.oPrimValue``), so the value is persisted on the
+        Column here as well.  Only a column the server actually sent can produce
+        a fresh NULL."""
         conv = TypeConverter(self.connection)
         row = []
         for col in self.columns:
             if getattr(col, "get_data_from_server", True):
-                row.append(conv.read(self.session, col))
+                value = conv.read(self.session, col)
+                col.prim_value = value
             else:
-                row.append(None)
+                value = getattr(col, "prim_value", None)
+            row.append(value)
         self._rows.append(row)
 
     def _read_column_definitions(self):
