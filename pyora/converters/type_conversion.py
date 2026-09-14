@@ -139,7 +139,18 @@ class TypeConverter:
 
         Mirrors go-ora ``decodeColumnValue`` for the scalar case: the raw bytes
         arrive as a CLR and are decoded according to the column's OCI type.
+
+        Degenerate columns must consume **no** bytes at all.  go-ora
+        ``decodePrimValue`` (parameter.go) returns nil *before* calling GetClr
+        for an empty CHAR/VARCHAR2 (``MaxCharLen == 0``) or an empty RAW
+        (``MaxLen == 0``); those columns are simply absent from the row stream
+        (a bare ``NULL`` literal has ``MaxCharLen == 0``).  Consuming a CLR for
+        them would desynchronise every following field of the row.
         """
+        if column.oci_type in (OCI_NCHAR, OCI_CHAR) and column.max_char_len == 0:
+            return None
+        if column.oci_type == OCI_RAW and column.max_len == 0:
+            return None
         data = session.get_clr()
         if data is None:
             return None
