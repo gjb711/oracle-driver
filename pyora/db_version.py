@@ -27,8 +27,8 @@ def get_db_version(session):
     msg = session.get_byte()
     if msg != 8:
         raise IOError("message code error: received code {} and expected code is 8".format(msg))
-    length = session.get_int(2, True, True)
-    info = session.get_string(length)
+    info_bytes = session.get_dlc()
+    info = info_bytes.decode('latin-1') if info_bytes else ''
     number = session.get_int(4, True, True)
 
     version = ((number >> 24 & 0xFF) * 1000 + (number >> 20 & 0xF) * 100
