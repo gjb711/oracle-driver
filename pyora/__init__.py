@@ -24,7 +24,7 @@ from .configurations import parse_config, ConnectionConfig
 from .network.oracle_error import OracleError
 from .connection import Connection
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 __all__ = ["connect", "Connection", "OracleError", "parse_config", "Cursor", "ConnectionWrapper"]
 

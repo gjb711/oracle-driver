@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oracle-driver"
+version = "1.0.0"
+description = "Native pure-Python Oracle driver — a clean-room port of the go-ora v2 TTC/Net8 wire protocol. No Oracle client, no CGO."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+    { name = "gjb711", email = "gjb711@qq.com" },
+]
+keywords = ["oracle", "driver", "database", "ttc", "net8", "go-ora", "pure-python"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/gjb711/oracle-driver"
+Repository = "https://github.com/gjb711/oracle-driver"
+Documentation = "https://github.com/gjb711/oracle-driver#readme"
+
+[tool.setuptools.packages.find]
+include = ["pyora*"]
+exclude = ["tests*"]
