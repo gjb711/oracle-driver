@@ -14,6 +14,22 @@ to any platform with CPython.
 > streaming CLOB/BLOB fetch) are intentionally out of scope here and documented
 > under *Limitations*.
 
+## Install
+
+```bash
+pip install oracle-driver
+```
+
+- Distribution name on PyPI: **`oracle-driver`**; import name: **`pyora`**.
+- Requires **Python >= 3.9**.
+- Runtime dependency: **`cryptography`** (AES-CBC for the O5LOGON session-key
+  exchange and DES for the password key derivation). It is declared in the
+  package metadata, so `pip` installs it automatically.
+
+The only third-party requirement is `cryptography`; everything else uses the
+Python standard library (`socket`, `struct`, `hashlib`, `hmac`, `decimal`,
+`datetime`, `zoneinfo`, ...).
+
 ## Quick start
 
 ```python

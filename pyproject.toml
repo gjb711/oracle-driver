@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oracle-driver"
-version = "1.0.2"
+version = "1.0.3"
 description = "Native pure-Python Oracle driver — a clean-room port of the go-ora v2 TTC/Net8 wire protocol. No Oracle client, no CGO."
 readme = "README.md"
 requires-python = ">=3.9"
