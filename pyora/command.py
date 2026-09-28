@@ -598,12 +598,85 @@ class Command:
         self._has_more_rows = True
         return row
 
+    # maximum rows that may be requested in one ``_fetch``: go-ora writes the
+    # fetch count as a 2-byte compressed integer, so anything larger would be
+    # silently truncated by the wire encoding.
+    MAX_ROWS_PER_FETCH = 0xFFFF
+
+    def _auto_fetch_size(self):
+        """Port of the fetch-size heuristic at the top of go-ora
+        ``defaultStmt.fetch`` (command.go): when the configured prefetch is
+        still the default 25, size the next batch so that one batch fits in
+        0x20000 bytes, using each column's maximum wire length."""
+        if self._no_of_rows_to_fetch != 25:
+            return self._no_of_rows_to_fetch
+        max_row_size = 0
+        for col in self.columns or ():
+            if getattr(col, "is_lob_type", False):
+                max_row_size += 86
+            elif getattr(col, "is_long_type", False):
+                max_row_size += 2
+            else:
+                max_row_size += getattr(col, "max_len", 0) or 0
+        if max_row_size > 0:
+            computed = (0x20000 // max_row_size) + 1
+            if computed > self.MAX_ROWS_PER_FETCH:
+                computed = self.MAX_ROWS_PER_FETCH
+            self._no_of_rows_to_fetch = computed
+        return self._no_of_rows_to_fetch
+
     def fetch_more(self):
-        """TODO(stub): go-ora ``defaultStmt.fetch``/``_fetch`` for subsequent
-        row batches and LOBFETCH.  The CORE flow returns the first batch."""
-        raise NotImplementedError(
-            "fetch_more (subsequent row batches / LOBFETCH) is out of the CORE "
-            "flow scope. See command.go _fetch / queryLobPrefetch.")
+        """Fetch the next row batch, appending the decoded rows to ``_rows``.
+
+        Faithful port of go-ora ``defaultStmt.fetch`` / ``_fetch``
+        (command.go): the fetch request is the opcode
+        ``PutBytes(3, 5, 0)`` followed by the cursor id and the number of rows
+        to fetch, both as 2-byte compressed integers.  The response is read by
+        the same ``read_response`` loop used for the initial batch, so column
+        bit-vectors and the "unchanged column" carry-over keep working across
+        batches.
+
+        Returns the number of rows this batch appended (0 means the server had
+        nothing left, i.e. end of result set).
+        """
+        from .network.oracle_error import ErrConnReset
+        self._auto_fetch_size()
+        count = min(self._no_of_rows_to_fetch, self.MAX_ROWS_PER_FETCH)
+        session = self.session
+        before = len(self._rows)
+        session.reset_buffer()
+        session.put_bytes(3, 5, 0)
+        session.put_int(self.cursor_id, 2, True, True)
+        session.put_int(count, 2, True, True)
+        session.write()
+        try:
+            self.read_response()
+        except ErrConnReset:
+            # go-ora: on a connection reset, drain the pending messages and
+            # pick the (possibly new) cursor id out of the summary.
+            self.connection.read()
+            if session.summary is not None:
+                self.cursor_id = session.summary.cursor_id
+            self.read_response()
+        return len(self._rows) - before
+
+    def fetch_all(self):
+        """Drive ``fetch_more`` until the server reports the end of the result
+        set, mirroring go-ora's ``DataSet.Next`` loop.  Returns ``self._rows``.
+
+        Termination mirrors go-ora: the batch loop stops as soon as a fetch
+        comes back empty.  Oracle answers a fetch past the last row with
+        ORA-01403, which ``read_response`` treats as a clean end of data
+        (``_has_more_rows = False``) rather than as an error.
+        """
+        guard = 0
+        while self._has_more_rows:
+            guard += 1
+            if guard > 1000000:
+                break
+            if self.fetch_more() == 0:
+                break
+        return self._rows
 
     # ------------------------------------------------------------------
     # exec convenience
@@ -623,11 +696,17 @@ class Command:
     def query(self):
         """Run the parsed query and return a DataSet of columns + rows.
 
-        This is the CORE select path: write, read the response (columns), then
-        read the first row batch directly off the wire.
+        This is the SELECT path: write, read the first row batch off the wire,
+        then keep fetching batches until the server reports the end of the
+        result set (go-ora's ``Query_`` + ``DataSet.Next`` fetch loop, which
+        this used to truncate to the first ``prefetch_rows`` rows).
         """
+        # go-ora ``Query_`` seeds the flag before writing; it is only cleared
+        # when the server answers a fetch with ORA-01403.
+        self._has_more_rows = True
         self.write()
         self.read_response()
+        self.fetch_all()
         # Rows decoded from the wire by msg 7 handling are accumulated in
         # ``self._rows``; hand them to a ResultSet for the DB-API layer.
         data_set = ResultSet(self.columns, self._rows)

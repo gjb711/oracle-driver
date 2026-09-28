@@ -21,6 +21,7 @@ from .accept_packet import new_accept_packet_from_data
 from .refuse_packet import new_refuse_packet_from_data
 from .marker_packet import (
     new_marker_packet, new_marker_packet_from_data, MARKER_TYPE_RESET,
+    MARKER_TYPE_BREAK, MARKER_TYPE_DATA,
 )
 from .session_ctx import SessionContext, new_session_context
 from .oracle_error import OracleError, new_oracle_error, ErrConnReset
@@ -158,9 +159,67 @@ class Session:
             return None
 
         if pck_type == MARKER:
-            return new_marker_packet_from_data(packet_data, self.context)
+            # go-ora handles the marker handshake *inside* readPacket and folds
+            # the real response that follows into the input buffer, so the
+            # caller never sees the marker.  Reporting it as a connection reset
+            # (the previous behaviour) threw away that response.
+            self._process_marker(packet_data)
+            return None
 
         raise ValueError("unsupported packet type: {}".format(pck_type))
+
+    def _process_marker(self, packet_data):
+        """Port of the MARKER branch of go-ora ``Session.readPacket``.
+
+        The server announces a break/reset, the client answers with marker
+        data byte 2, and the *actual* response then arrives in the next data
+        packet, which is placed at the head of the input buffer.
+        """
+        pck = new_marker_packet_from_data(packet_data, self.context)
+        if pck is None:
+            raise ErrConnReset()
+
+        break_conn = False
+        reset_conn = False
+        if pck.marker_type == MARKER_TYPE_BREAK:
+            break_conn = True
+        elif pck.marker_type == MARKER_TYPE_DATA:
+            if pck.marker_data == 2:
+                reset_conn = True
+            else:
+                break_conn = True
+        else:
+            raise OSError("unknown marker type: {}".format(pck.marker_type))
+
+        trials = 1
+        while break_conn and not reset_conn:
+            if trials > 3:
+                raise ErrConnReset()
+            self.read_packet_data()
+            pck = new_marker_packet_from_data(bytes(self.last_packet), self.context)
+            if pck is None:
+                raise ErrConnReset()
+            if pck.marker_type == MARKER_TYPE_BREAK:
+                break_conn = True
+            elif pck.marker_type == MARKER_TYPE_DATA:
+                if pck.marker_data == 2:
+                    reset_conn = True
+                else:
+                    break_conn = True
+            else:
+                raise OSError("unknown marker type: {}".format(pck.marker_type))
+            trials += 1
+
+        self.reset_buffer()
+        self.write_packet(new_marker_packet(MARKER_TYPE_RESET, self.context))
+
+        # the payload the server withheld until the reset completed
+        self.read_packet_data()
+        data_pck = new_data_packet_from_data(bytes(self.last_packet), self.context)
+        if data_pck is None:
+            raise ErrConnReset()
+        self.in_buffer = bytearray(data_pck.buffer)
+        return None
 
     def connect(self):
         config = self.context.conn_config
@@ -299,18 +358,18 @@ class Session:
                 num_bytes -= take
                 continue
             if is_marker_type(pck):
-                self.process_marker()
+                # ``read_packet`` consumes markers itself; reaching this means
+                # the session is not resynchronised, so surface it as a reset.
                 raise ErrConnReset()
             raise ValueError("receive abnormal packet type {} instead of data packet".format(
                 pck.get_packet_type()))
         return bytes(ret)
 
     def process_marker(self):
-        self.reset_write()
-        marker = new_marker_packet(MARKER_TYPE_RESET, self.context)
-        self.write_packet(marker)
-        self.read_packet()
-        return None
+        """Deprecated shim: marker handling now lives in ``_process_marker``. A
+        marker reached through this entry point means the caller must resend the
+        statement, so it always reports a connection reset."""
+        raise ErrConnReset()
 
     def get_byte(self):
         rb = self.read(1)
